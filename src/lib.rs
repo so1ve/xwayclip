@@ -48,7 +48,7 @@ impl Config {
     }
 }
 
-pub fn run(config: Config) -> Result<()> {
+pub fn run(config: Config) -> ! {
     let mut reconnect_delay = INITIAL_RECONNECT_DELAY;
 
     loop {

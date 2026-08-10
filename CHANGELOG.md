@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/so1ve/xwayclip/compare/v0.1.1...v0.1.2) - 2026-08-10
+
+### Added
+
+- add nixos home manager module
+
+### Fixed
+
+- avoid exposing clipboard HTML as plain text
+
+### Other
+
+- simplify code
+- apply automatic fixes
+- display debug logs in debug releases
+- update description
+
 ## [0.1.1](https://github.com/so1ve/xwayclip/compare/v0.1.0...v0.1.1) - 2026-08-10
 
 ### Other

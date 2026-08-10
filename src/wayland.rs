@@ -11,18 +11,10 @@ const PLAIN_TEXT_MIME_TYPES: [&str; 5] = [
 ];
 
 pub fn publish(snapshot: Snapshot) -> Result<(), Error> {
-    let (sources, has_plain_text) = sources(snapshot);
-    let mut options = Options::new();
-    options.omit_additional_text_mime_types(!has_plain_text);
-
-    options.copy_multi(sources)
-}
-
-fn sources(snapshot: Snapshot) -> (Vec<MimeSource>, bool) {
     let mut offers = snapshot.into_offers();
     let plain_text = take_plain_text(&mut offers);
-    let has_plain_text = plain_text.is_some();
-    let mut sources = Vec::with_capacity(offers.len() + usize::from(plain_text.is_some()));
+    let omit_text_aliases = plain_text.is_none();
+    let mut sources = Vec::new();
 
     if let Some(offer) = plain_text {
         sources.push(MimeSource {
@@ -36,7 +28,9 @@ fn sources(snapshot: Snapshot) -> (Vec<MimeSource>, bool) {
         source: Source::Bytes(offer.data.into_boxed_slice()),
     }));
 
-    (sources, has_plain_text)
+    let mut options = Options::new();
+    options.omit_additional_text_mime_types(omit_text_aliases);
+    options.copy_multi(sources)
 }
 
 fn take_plain_text(offers: &mut Vec<Offer>) -> Option<Offer> {

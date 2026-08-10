@@ -93,14 +93,20 @@ fn run_session(mut watcher: ClipboardWatcher, reconnect_delay: &mut Duration) ->
             continue;
         }
 
-        let offer_count = snapshot.mime_types().count();
         let total_bytes = snapshot.total_bytes();
-        let mime_types = snapshot.mime_types().collect::<Vec<_>>().join(", ");
+        let mime_types = snapshot.mime_types().collect::<Vec<_>>();
+        let offer_count = mime_types.len();
+        let mime_types = mime_types.join(", ");
 
         wayland::publish(snapshot).context("failed to publish the clipboard to Wayland")?;
         last_fingerprint = Some(fingerprint);
         *reconnect_delay = INITIAL_RECONNECT_DELAY;
 
-        info!(offer_count, total_bytes, %mime_types, "published clipboard to Wayland");
+        info!(
+            offer_count,
+            total_bytes,
+            %mime_types,
+            "published clipboard to Wayland"
+        );
     }
 }

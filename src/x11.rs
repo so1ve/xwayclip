@@ -20,6 +20,7 @@ use crate::snapshot::{Offer, Snapshot};
 const PROPERTY_CHUNK_LONGS: u32 = 16 * 1024;
 const MAX_TARGET_COUNT: usize = 4096;
 const TARGET_LIST_LIMIT: usize = MAX_TARGET_COUNT * size_of::<Atom>();
+const SNAPSHOT_ATTEMPTS: usize = 2;
 const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(2);
 
 const CONTROL_TARGETS: &[&str] = &[
@@ -135,11 +136,26 @@ impl ClipboardWatcher {
                 continue;
             }
 
-            match self.capture(&change) {
-                Ok(Some(snapshot)) => return Ok(snapshot),
-                Ok(None) => debug!("discarded a stale or empty X11 clipboard snapshot"),
-                Err(error) => {
-                    warn!(%error, "could not capture the complete X11 clipboard snapshot");
+            for attempt in 1..=SNAPSHOT_ATTEMPTS {
+                match self.capture(&change) {
+                    Ok(Some(snapshot)) => return Ok(snapshot),
+                    Ok(None) => {
+                        debug!("discarded a stale or empty X11 clipboard snapshot");
+                        break;
+                    }
+                    Err(error)
+                        if attempt < SNAPSHOT_ATTEMPTS && self.selection_is_current(&change)? =>
+                    {
+                        warn!(
+                            %error,
+                            next_attempt = attempt + 1,
+                            "could not capture the complete X11 clipboard snapshot; retrying"
+                        );
+                    }
+                    Err(error) => {
+                        warn!(%error, "could not capture the complete X11 clipboard snapshot");
+                        break;
+                    }
                 }
             }
         }
@@ -207,21 +223,7 @@ impl ClipboardWatcher {
             });
         }
 
-        if self.has_pending_change()? {
-            return Ok(None);
-        }
-
-        let current_owner = self
-            .conn
-            .get_selection_owner(self.atoms.clipboard)?
-            .reply()?
-            .owner;
-        if current_owner != change.owner {
-            debug!(
-                expected = change.owner,
-                actual = current_owner,
-                "X11 clipboard owner changed"
-            );
+        if !self.selection_is_current(change)? {
             return Ok(None);
         }
 
@@ -426,6 +428,28 @@ impl ClipboardWatcher {
         }
 
         Ok(self.pending_change.is_some())
+    }
+
+    fn selection_is_current(&mut self, change: &SelectionChange) -> Result<bool> {
+        if self.has_pending_change()? {
+            return Ok(false);
+        }
+
+        let current_owner = self
+            .conn
+            .get_selection_owner(self.atoms.clipboard)?
+            .reply()?
+            .owner;
+        if current_owner != change.owner {
+            debug!(
+                expected = change.owner,
+                actual = current_owner,
+                "X11 clipboard owner changed"
+            );
+            return Ok(false);
+        }
+
+        Ok(!self.has_pending_change()?)
     }
 
     fn selection_change(&self, event: XfixesNotify) -> Option<SelectionChange> {

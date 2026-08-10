@@ -93,7 +93,7 @@ fn run_session(mut watcher: ClipboardWatcher, reconnect_delay: &mut Duration) ->
             continue;
         }
 
-        let offer_count = snapshot.len();
+        let offer_count = snapshot.mime_types().count();
         let total_bytes = snapshot.total_bytes();
         let mime_types = snapshot.mime_types().collect::<Vec<_>>().join(", ");
 

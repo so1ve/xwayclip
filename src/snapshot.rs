@@ -29,10 +29,6 @@ impl Snapshot {
         hasher.finalize()
     }
 
-    pub const fn len(&self) -> usize {
-        self.offers.len()
-    }
-
     pub fn total_bytes(&self) -> usize {
         self.offers.iter().map(|offer| offer.data.len()).sum()
     }

@@ -41,10 +41,7 @@ fn sources(snapshot: Snapshot) -> (Vec<MimeSource>, bool) {
 
 fn take_plain_text(offers: &mut Vec<Offer>) -> Option<Offer> {
     for mime_type in PLAIN_TEXT_MIME_TYPES {
-        if let Some(index) = offers
-            .iter()
-            .position(|offer| offer.mime_type == mime_type)
-        {
+        if let Some(index) = offers.iter().position(|offer| offer.mime_type == mime_type) {
             return Some(offers.remove(index));
         }
     }

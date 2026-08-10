@@ -3,6 +3,8 @@ name = "xwayclip"
 version = "0.1.0"
 edition = "2024"
 description = "Clipboard synchronization from X11 to Wayland"
+license = "MIT"
+repository = "https://github.com/so1ve/xwayclip"
 
 [dependencies]
 anyhow = "1.0.104"

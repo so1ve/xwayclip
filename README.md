@@ -1,5 +1,7 @@
 # xwayclip
 
+[![Cachix Cache](https://img.shields.io/badge/cachix-so1ve-blue.svg)](https://so1ve.cachix.org)
+
 `xwayclip` provides clipboard synchronization from X11 to Wayland. It is intended for native Wayland applications that still use X11 apis for clipboard operations, such as Linux QQ. (腾讯眉目了)
 
 ## How it works
@@ -13,6 +15,8 @@ Large `INCR` transfers are supported and a content fingerprint is used to suppre
 - An X11 display reachable through `DISPLAY` with XFixes extension available
 - A Wayland compositor reachable through `WAYLAND_DISPLAY`
 - Compositor support for `ext-data-control` or `wlr-data-control`
+
+Built and tested on nightly rust with `niri` compositor. Should work on any compositor with `ext-data-control` or `wlr-data-control` support and stable rust.
 
 ## Installation
 
@@ -66,6 +70,17 @@ Alternatively, use an overlay to make `pkgs.xwayclip` available:
 }
 ```
 
+### Cachix
+
+```nix
+nix.settings = {
+  extra-substituters = [ "https://so1ve.cachix.org" ];
+  extra-trusted-public-keys = [
+    "so1ve.cachix.org-1:51jcW4FkJhiLcqPsiUx3nglRP469les8F9zjFxio1nw="
+  ];
+};
+```
+
 ## Usage
 
 ```sh
@@ -75,6 +90,14 @@ xwayclip
 Run `xwayclip --help` for usage.
 
 ## Development
+
+You can use `devenv` on Nix:
+
+```sh
+devenv shell
+```
+
+Run locally:
 
 ```sh
 cargo run

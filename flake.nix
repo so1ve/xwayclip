@@ -1,6 +1,13 @@
 {
   description = "Clipboard synchronization from X11 to Wayland";
 
+  nixConfig = {
+    extra-substituters = [ "https://so1ve.cachix.org" ];
+    extra-trusted-public-keys = [
+      "so1ve.cachix.org-1:51jcW4FkJhiLcqPsiUx3nglRP469les8F9zjFxio1nw="
+    ];
+  };
+
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
   outputs =
@@ -65,6 +72,8 @@
           default = app;
         }
       );
+
+      formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixfmt-tree);
 
       overlays.default = final: _prev: {
         xwayclip = mkPackage final;

@@ -75,6 +75,8 @@
 
       formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixfmt-tree);
 
+      homeManagerModules.default = import ./nix/home-manager-module.nix self;
+
       overlays.default = final: _prev: {
         xwayclip = mkPackage final;
       };

@@ -71,6 +71,20 @@ Alternatively, use an overlay to make `pkgs.xwayclip` available:
 }
 ```
 
+Import the home manager module to enable the service:
+
+```nix
+{ inputs, ... }:
+
+{
+  imports = [ inputs.xwayclip.homeManagerModules.default ];
+
+  services.xwayclip.enable = true;
+}
+```
+
+Additional command-line arguments can be configured with `services.xwayclip.extraArgs`.
+
 ### Cachix
 
 ```nix

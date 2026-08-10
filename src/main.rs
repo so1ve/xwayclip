@@ -1,3 +1,66 @@
-fn main() {
-    println!("Hello, world!");
+use std::time::Duration;
+
+use anyhow::{Context, Result};
+use clap::Parser;
+use tracing_subscriber::EnvFilter;
+use xwayclip::Config;
+
+const MIB: usize = 1024 * 1024;
+
+/// Clipboard synchronization from X11 to Wayland
+#[derive(Parser)]
+#[command(version)]
+struct Args {
+    /// Maximum size accepted for a single clipboard format, in MiB
+    #[arg(long, default_value_t = 256)]
+    max_target_size_mib: usize,
+
+    /// Maximum combined size accepted for one clipboard snapshot, in MiB
+    #[arg(long, default_value_t = 512)]
+    max_total_size_mib: usize,
+
+    /// Maximum time to wait for each X11 target transfer
+    #[arg(long, default_value_t = 5_000)]
+    transfer_timeout_ms: u64,
+
+    /// Wait for a new X11 clipboard owner instead of syncing the current owner
+    /// at startup
+    #[arg(long)]
+    no_initial_sync: bool,
+}
+
+fn main() -> Result<()> {
+    init_tracing();
+
+    let args = Args::parse();
+    let config = config_from_args(&args)?;
+    xwayclip::run(config)
+}
+
+fn init_tracing() {
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("xwayclip=info,warn"));
+
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .init();
+}
+
+fn config_from_args(args: &Args) -> Result<Config> {
+    let max_target_bytes = args
+        .max_target_size_mib
+        .checked_mul(MIB)
+        .context("--max-target-size-mib is too large")?;
+    let max_total_bytes = args
+        .max_total_size_mib
+        .checked_mul(MIB)
+        .context("--max-total-size-mib is too large")?;
+
+    Config::new(
+        max_target_bytes,
+        max_total_bytes,
+        Duration::from_millis(args.transfer_timeout_ms),
+        !args.no_initial_sync,
+    )
 }

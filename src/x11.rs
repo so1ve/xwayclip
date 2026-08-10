@@ -63,7 +63,7 @@ pub struct ClipboardWatcher {
 }
 
 impl ClipboardWatcher {
-    pub fn new(config: Config) -> Result<Self> {
+    pub fn new(config: Config, sync_current_owner: bool) -> Result<Self> {
         let (conn, screen_number) = x11rb::connect(None).context("cannot connect to DISPLAY")?;
         let screen = &conn.setup().roots[screen_number];
         let root = screen.root;
@@ -103,7 +103,7 @@ impl ClipboardWatcher {
         )?
         .check()?;
 
-        let pending_change = if config.initial_sync {
+        let pending_change = if sync_current_owner {
             let owner = conn.get_selection_owner(atoms.clipboard)?.reply()?.owner;
             (owner != NONE).then_some(SelectionChange {
                 owner,

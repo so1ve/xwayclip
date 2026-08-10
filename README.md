@@ -16,10 +16,54 @@ Large `INCR` transfers are supported and a content fingerprint is used to suppre
 
 ## Installation
 
-From source:
+### From Source
+
+With Cargo:
 
 ```sh
 cargo install xwayclip
+```
+
+### Nix
+
+Run directly:
+
+```sh
+nix run github:so1ve/xwayclip
+```
+
+With a Nix flake, add `xwayclip` to the inputs:
+
+```nix
+inputs.xwayclip.url = "github:so1ve/xwayclip";
+```
+
+Then add the package to a NixOS module:
+
+```nix
+{ inputs, pkgs, ... }:
+
+{
+  environment.systemPackages = [
+    inputs.xwayclip.packages.${pkgs.stdenv.hostPlatform.system}.default
+  ];
+}
+```
+
+Alternatively, use an overlay to make `pkgs.xwayclip` available:
+
+```nix
+{ inputs, pkgs, ... }:
+
+{
+  nixpkgs.overlays = [
+    inputs.xwayclip.overlays.default
+  ];
+
+  environment.systemPackages = [
+    pkgs.xwayclip
+  ];
+}
 ```
 
 ## Usage

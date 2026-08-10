@@ -19,7 +19,6 @@ pub struct Config {
     max_target_bytes: usize,
     max_total_bytes: usize,
     transfer_timeout: Duration,
-    initial_sync: bool,
 }
 
 impl Config {
@@ -27,7 +26,6 @@ impl Config {
         max_target_bytes: usize,
         max_total_bytes: usize,
         transfer_timeout: Duration,
-        initial_sync: bool,
     ) -> Result<Self> {
         ensure!(
             max_target_bytes > 0,
@@ -46,23 +44,16 @@ impl Config {
             max_target_bytes,
             max_total_bytes,
             transfer_timeout,
-            initial_sync,
         })
     }
 }
 
 pub fn run(config: Config) -> Result<()> {
     let mut reconnect_delay = INITIAL_RECONNECT_DELAY;
-    let mut sync_current_owner = config.initial_sync;
 
     loop {
-        let result = match ClipboardWatcher::new(config, sync_current_owner) {
-            Ok(watcher) => {
-                sync_current_owner = true;
-                run_session(watcher, &mut reconnect_delay)
-            }
-            Err(error) => Err(error),
-        };
+        let result = ClipboardWatcher::new(config)
+            .and_then(|watcher| run_session(watcher, &mut reconnect_delay));
 
         if let Err(error) = result {
             warn!(

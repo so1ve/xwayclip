@@ -22,11 +22,6 @@ struct Args {
     /// Maximum time to wait for each X11 target transfer
     #[arg(long, default_value_t = 5_000)]
     transfer_timeout_ms: u64,
-
-    /// Wait for a new X11 clipboard owner instead of syncing the current owner
-    /// at startup
-    #[arg(long)]
-    no_initial_sync: bool,
 }
 
 fn main() -> Result<()> {
@@ -66,6 +61,5 @@ fn config_from_args(args: &Args) -> Result<Config> {
         max_target_bytes,
         max_total_bytes,
         Duration::from_millis(args.transfer_timeout_ms),
-        !args.no_initial_sync,
     )
 }

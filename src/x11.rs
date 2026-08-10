@@ -12,7 +12,7 @@ use x11rb::protocol::xproto::{
     WindowClass,
 };
 use x11rb::rust_connection::RustConnection;
-use x11rb::{COPY_DEPTH_FROM_PARENT, CURRENT_TIME, NONE};
+use x11rb::{COPY_DEPTH_FROM_PARENT, NONE};
 
 use crate::Config;
 use crate::snapshot::{Offer, Snapshot};
@@ -64,7 +64,7 @@ pub struct ClipboardWatcher {
 }
 
 impl ClipboardWatcher {
-    pub fn new(config: Config, sync_current_owner: bool) -> Result<Self> {
+    pub fn new(config: Config) -> Result<Self> {
         let (conn, screen_number) = x11rb::connect(None).context("cannot connect to DISPLAY")?;
         let screen = &conn.setup().roots[screen_number];
         let root = screen.root;
@@ -104,22 +104,12 @@ impl ClipboardWatcher {
         )?
         .check()?;
 
-        let pending_change = if sync_current_owner {
-            let owner = conn.get_selection_owner(atoms.clipboard)?.reply()?.owner;
-            (owner != NONE).then_some(SelectionChange {
-                owner,
-                timestamp: CURRENT_TIME,
-            })
-        } else {
-            None
-        };
-
         Ok(Self {
             conn,
             window,
             atoms,
             config,
-            pending_change,
+            pending_change: None,
         })
     }
 

@@ -1,5 +1,6 @@
 # xwayclip
 
+[![CI](https://github.com/so1ve/xwayclip/actions/workflows/ci.yml/badge.svg)](https://github.com/so1ve/xwayclip/actions/workflows/ci.yml)
 [![Cachix Cache](https://img.shields.io/badge/cachix-so1ve-blue.svg)](https://so1ve.cachix.org)
 
 `xwayclip` provides clipboard synchronization from X11 to Wayland. It is intended for native Wayland applications that still use X11 apis for clipboard operations, such as Linux QQ. (腾讯眉目了)

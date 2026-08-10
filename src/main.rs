@@ -38,8 +38,13 @@ fn main() -> Result<()> {
 }
 
 fn init_tracing() {
+    let default_filter = if cfg!(debug_assertions) {
+        "xwayclip=debug,warn"
+    } else {
+        "xwayclip=info,warn"
+    };
     let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("xwayclip=info,warn"));
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
 
     tracing_subscriber::fmt()
         .with_env_filter(filter)

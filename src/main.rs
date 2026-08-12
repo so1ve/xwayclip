@@ -7,9 +7,8 @@ use xwayclip::Config;
 
 const MIB: usize = 1024 * 1024;
 
-/// Clipboard synchronization from X11 to Wayland
 #[derive(Parser)]
-#[command(version)]
+#[command(version, about)]
 struct Args {
     /// Maximum size accepted for a single clipboard format, in MiB
     #[arg(long, default_value_t = 256)]

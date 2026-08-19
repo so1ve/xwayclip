@@ -2,7 +2,7 @@
 name = "xwayclip"
 version = "0.2.0"
 edition = "2024"
-description = "Clipboard synchronization from X11 to Wayland"
+description = "Bidirectional clipboard synchronization between X11 and Wayland"
 repository = "https://github.com/so1ve/xwayclip"
 license = "MIT"
 
@@ -10,9 +10,11 @@ license = "MIT"
 anyhow = "1.0.104"
 blake3 = "1.8.6"
 clap = { version = "4.6.6", features = ["derive"] }
+rustix = { version = "1.1.4", features = ["event"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 wl-clipboard-rs = "0.9.3"
+wl-clipboard-watch = "0.1.0"
 x11rb = { version = "0.14.0", features = ["xfixes"] }
 
 [lints.clippy]

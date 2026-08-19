@@ -1,45 +1,34 @@
 use std::cmp::min;
+use std::collections::HashMap;
+use std::io::{ErrorKind, Read};
+use std::os::unix::net::UnixStream;
+use std::rc::Rc;
+use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
+use rustix::event::{PollFd, PollFlags, poll};
 use tracing::{debug, trace, warn};
-use x11rb::connection::Connection;
+use x11rb::connection::{Connection, RequestConnection};
 use x11rb::protocol::Event;
 use x11rb::protocol::xfixes::{self, SelectionEventMask, SelectionNotifyEvent as XfixesNotify};
 use x11rb::protocol::xproto::{
-    Atom, AtomEnum, ConnectionExt as _, CreateWindowAux, EventMask, Property, Timestamp, Window,
-    WindowClass,
+    Atom, AtomEnum, ChangeWindowAttributesAux, ConnectionExt as XprotoConnectionExt,
+    CreateWindowAux, EventMask, PropMode, Property, PropertyNotifyEvent, SELECTION_NOTIFY_EVENT,
+    SelectionNotifyEvent, SelectionRequestEvent, Timestamp, Window, WindowClass,
 };
 use x11rb::rust_connection::RustConnection;
-use x11rb::{COPY_DEPTH_FROM_PARENT, NONE};
+use x11rb::wrapper::ConnectionExt as WrapperConnectionExt;
+use x11rb::{COPY_DEPTH_FROM_PARENT, CURRENT_TIME, NONE};
 
-use crate::Config;
-use crate::snapshot::{Offer, Snapshot};
+use crate::snapshot::{Offer, Snapshot, is_x11_target};
+use crate::{ClipboardUpdate, Config, WorkerEvent, X11Command};
 
 const PROPERTY_CHUNK_LONGS: u32 = 16 * 1024;
 const MAX_TARGET_COUNT: usize = 4096;
 const TARGET_LIST_LIMIT: usize = MAX_TARGET_COUNT * size_of::<Atom>();
-const SNAPSHOT_ATTEMPTS: usize = 2;
 const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(2);
-
-const CONTROL_TARGETS: &[&str] = &[
-    "ATOM",
-    "ATOM_PAIR",
-    "DELETE",
-    "INCR",
-    "INSERT_PROPERTY",
-    "INSERT_SELECTION",
-    "MULTIPLE",
-    "SAVE_TARGETS",
-    "TARGETS",
-    "TIMESTAMP",
-];
-
-struct SelectionChange {
-    owner: Window,
-    timestamp: Timestamp,
-}
 
 struct Atoms {
     clipboard: Atom,
@@ -55,16 +44,49 @@ struct PropertyValue {
     exceeded_limit: bool,
 }
 
-pub struct ClipboardWatcher {
+struct OwnedTarget {
+    atom: Atom,
+    source: usize,
+}
+
+struct OwnedSelection {
+    snapshot: Rc<Snapshot>,
+    targets: Vec<OwnedTarget>,
+}
+
+struct IncrTransfer {
+    snapshot: Rc<Snapshot>,
+    source: usize,
+    offset: usize,
+    target: Atom,
+}
+
+struct ClipboardBridge {
     conn: RustConnection,
     window: Window,
     atoms: Atoms,
     config: Config,
-    pending_change: Option<SelectionChange>,
+    events: Sender<WorkerEvent>,
+    max_property_bytes: usize,
+    pending_change: Option<XfixesNotify>,
+    owned: Option<OwnedSelection>,
+    incr_transfers: HashMap<(Window, Atom), IncrTransfer>,
 }
 
-impl ClipboardWatcher {
-    pub fn new(config: Config) -> Result<Self> {
+pub fn run(
+    config: Config,
+    events: Sender<WorkerEvent>,
+    commands: &Receiver<X11Command>,
+    mut wake: UnixStream,
+) -> Result<()> {
+    let mut bridge = ClipboardBridge::new(config, events)?;
+    bridge.events.send(WorkerEvent::Ready).unwrap();
+
+    bridge.event_loop(commands, &mut wake)
+}
+
+impl ClipboardBridge {
+    fn new(config: Config, events: Sender<WorkerEvent>) -> Result<Self> {
         let (conn, screen_number) = x11rb::connect(None).context("cannot connect to DISPLAY")?;
         let screen = &conn.setup().roots[screen_number];
         let root = screen.root;
@@ -104,65 +126,309 @@ impl ClipboardWatcher {
         )?
         .check()?;
 
+        let max_property_bytes = conn.maximum_request_bytes() - 32;
+        conn.flush()?;
+
         Ok(Self {
             conn,
             window,
             atoms,
             config,
+            events,
+            max_property_bytes,
             pending_change: None,
+            owned: None,
+            incr_transfers: HashMap::new(),
         })
     }
 
-    pub fn next_snapshot(&mut self) -> Result<Snapshot> {
+    fn event_loop(&mut self, commands: &Receiver<X11Command>, wake: &mut UnixStream) -> Result<()> {
         loop {
-            let change = if let Some(change) = self.pending_change.take() {
-                change
-            } else {
-                self.wait_for_change()?
-            };
+            loop {
+                match commands.try_recv() {
+                    Ok(X11Command::Set(snapshot)) => self.set_clipboard(snapshot)?,
+                    Ok(X11Command::Clear) => self.clear_clipboard()?,
+                    Err(TryRecvError::Disconnected) => return Ok(()),
+                    Err(TryRecvError::Empty) => break,
+                }
+            }
 
-            if change.owner == NONE {
-                trace!("X11 clipboard was cleared");
+            self.drain_events()?;
+            if let Some(change) = self.pending_change.take() {
+                self.process_selection_change(change)?;
                 continue;
             }
 
-            for attempt in 1..=SNAPSHOT_ATTEMPTS {
-                match self.capture(&change) {
-                    Ok(Some(snapshot)) => return Ok(snapshot),
-                    Ok(None) => {
-                        debug!("discarded a stale or empty X11 clipboard snapshot");
-                        break;
-                    }
-                    Err(error)
-                        if attempt < SNAPSHOT_ATTEMPTS && self.selection_is_current(&change)? =>
-                    {
-                        warn!(
-                            %error,
-                            next_attempt = attempt + 1,
-                            "could not capture the complete X11 clipboard snapshot; retrying"
-                        );
-                    }
+            let mut poll_fds = [
+                PollFd::new(self.conn.stream(), PollFlags::IN),
+                PollFd::new(&*wake, PollFlags::IN),
+            ];
+            loop {
+                match poll(&mut poll_fds, None) {
+                    Ok(_) => break,
+                    Err(rustix::io::Errno::INTR) => {}
                     Err(error) => {
-                        warn!(%error, "could not capture the complete X11 clipboard snapshot");
-                        break;
+                        return Err(error).context("failed to poll X11 clipboard descriptors");
                     }
                 }
             }
-        }
-    }
+            let x11_revents = poll_fds[0].revents();
+            let wake_revents = poll_fds[1].revents();
 
-    fn wait_for_change(&mut self) -> Result<SelectionChange> {
-        loop {
-            let event = self.conn.wait_for_event()?;
-            if let Event::XfixesSelectionNotify(event) = event
-                && let Some(change) = self.selection_change(event)
+            if x11_revents.intersects(PollFlags::ERR | PollFlags::HUP | PollFlags::NVAL)
+                && !x11_revents.contains(PollFlags::IN)
             {
-                return Ok(change);
+                bail!("X11 connection closed");
+            }
+            if wake_revents.contains(PollFlags::HUP) {
+                return Ok(());
+            }
+            if wake_revents.contains(PollFlags::IN) {
+                drain_wake(wake)?;
             }
         }
     }
 
-    fn capture(&mut self, change: &SelectionChange) -> Result<Option<Snapshot>> {
+    fn handle_event(&mut self, event: &Event) {
+        match event {
+            Event::XfixesSelectionNotify(event) => self.remember_change(*event),
+            Event::SelectionRequest(event) => {
+                if let Err(error) = self.handle_selection_request(*event) {
+                    warn!(%error, target = event.target, "failed to serve X11 selection request");
+                }
+            }
+            Event::SelectionClear(_) => self.owned = None,
+            Event::PropertyNotify(event) if event.state == Property::DELETE => {
+                if let Err(error) = self.advance_incr_transfer(*event) {
+                    warn!(%error, "failed to advance X11 INCR transfer");
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn drain_events(&mut self) -> Result<()> {
+        while let Some(event) = self.conn.poll_for_event()? {
+            self.handle_event(&event);
+        }
+
+        Ok(())
+    }
+
+    fn process_selection_change(&mut self, change: XfixesNotify) -> Result<()> {
+        if change.owner == NONE {
+            trace!("X11 clipboard was cleared");
+            self.events
+                .send(WorkerEvent::X11(ClipboardUpdate::Cleared))
+                .unwrap();
+
+            return Ok(());
+        }
+
+        match self.capture(&change) {
+            Ok(Some(snapshot)) => {
+                self.events
+                    .send(WorkerEvent::X11(ClipboardUpdate::Set(snapshot)))
+                    .unwrap();
+            }
+            Ok(None) => debug!("discarded a stale or empty X11 clipboard snapshot"),
+            Err(error) => warn!(%error, "could not capture the complete X11 clipboard snapshot"),
+        }
+
+        Ok(())
+    }
+
+    fn set_clipboard(&mut self, snapshot: Snapshot) -> Result<()> {
+        let snapshot = Rc::new(snapshot);
+        let targets = snapshot
+            .x11_targets()
+            .into_iter()
+            .map(|(mime_type, source)| {
+                Ok(OwnedTarget {
+                    atom: intern_atom(&self.conn, mime_type.as_bytes())?,
+                    source,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        self.owned = Some(OwnedSelection { snapshot, targets });
+
+        self.conn
+            .set_selection_owner(self.window, self.atoms.clipboard, CURRENT_TIME)?
+            .check()?;
+        self.conn.flush()?;
+
+        Ok(())
+    }
+
+    fn clear_clipboard(&mut self) -> Result<()> {
+        self.conn
+            .set_selection_owner(NONE, self.atoms.clipboard, CURRENT_TIME)?
+            .check()?;
+        self.owned = None;
+        self.conn.flush()?;
+
+        Ok(())
+    }
+
+    fn handle_selection_request(&mut self, request: SelectionRequestEvent) -> Result<()> {
+        if request.property == NONE {
+            return self.send_selection_notify(request, NONE);
+        }
+
+        let property = match self.write_selection_property(&request) {
+            Ok(()) => request.property,
+            Err(error) => {
+                warn!(%error, target = request.target, "refusing X11 selection target");
+                NONE
+            }
+        };
+
+        self.send_selection_notify(request, property)
+    }
+
+    fn write_selection_property(&mut self, request: &SelectionRequestEvent) -> Result<()> {
+        let owned = self
+            .owned
+            .as_ref()
+            .context("X11 selection request arrived without owned clipboard data")?;
+
+        if request.target == self.atoms.targets {
+            let mut targets = Vec::with_capacity(owned.targets.len() + 1);
+            targets.push(self.atoms.targets);
+            targets.extend(owned.targets.iter().map(|target| target.atom));
+            self.conn
+                .change_property32(
+                    PropMode::REPLACE,
+                    request.requestor,
+                    request.property,
+                    AtomEnum::ATOM,
+                    &targets,
+                )?
+                .check()?;
+
+            return Ok(());
+        }
+
+        let target = owned
+            .targets
+            .iter()
+            .find(|target| target.atom == request.target)
+            .context("requested X11 target is not offered")?;
+        let snapshot = Rc::clone(&owned.snapshot);
+        let source = target.source;
+        let data = &snapshot.offers()[source].data;
+
+        if data.len() <= self.max_property_bytes {
+            self.conn
+                .change_property8(
+                    PropMode::REPLACE,
+                    request.requestor,
+                    request.property,
+                    request.target,
+                    data,
+                )?
+                .check()?;
+
+            return Ok(());
+        }
+
+        let announced_size = u32::try_from(data.len())
+            .context("X11 INCR transfer is larger than the protocol can announce")?;
+        self.conn
+            .change_window_attributes(
+                request.requestor,
+                &ChangeWindowAttributesAux::new().event_mask(EventMask::PROPERTY_CHANGE),
+            )?
+            .check()?;
+        self.conn
+            .change_property32(
+                PropMode::REPLACE,
+                request.requestor,
+                request.property,
+                self.atoms.incr,
+                &[announced_size],
+            )?
+            .check()?;
+
+        trace!(
+            target = request.target,
+            bytes = data.len(),
+            "starting X11 INCR transfer"
+        );
+        self.incr_transfers.insert(
+            (request.requestor, request.property),
+            IncrTransfer {
+                snapshot,
+                source,
+                offset: 0,
+                target: request.target,
+            },
+        );
+
+        Ok(())
+    }
+
+    fn send_selection_notify(&self, request: SelectionRequestEvent, property: Atom) -> Result<()> {
+        let event = SelectionNotifyEvent {
+            response_type: SELECTION_NOTIFY_EVENT,
+            sequence: 0,
+            time: request.time,
+            requestor: request.requestor,
+            selection: request.selection,
+            target: request.target,
+            property,
+        };
+        self.conn
+            .send_event(false, request.requestor, EventMask::NO_EVENT, event)?
+            .check()?;
+        self.conn.flush()?;
+
+        Ok(())
+    }
+
+    fn advance_incr_transfer(&mut self, event: PropertyNotifyEvent) -> Result<()> {
+        let key = (event.window, event.atom);
+        let Some(mut transfer) = self.incr_transfers.remove(&key) else {
+            return Ok(());
+        };
+
+        let data = &transfer.snapshot.offers()[transfer.source].data;
+        let end = min(transfer.offset + self.max_property_bytes, data.len());
+        self.conn
+            .change_property8(
+                PropMode::REPLACE,
+                event.window,
+                event.atom,
+                transfer.target,
+                &data[transfer.offset..end],
+            )?
+            .check()?;
+        self.conn.flush()?;
+
+        if transfer.offset == end {
+            trace!(target = transfer.target, "completed X11 INCR transfer");
+            if !self
+                .incr_transfers
+                .keys()
+                .any(|(window, _)| *window == event.window)
+            {
+                self.conn
+                    .change_window_attributes(
+                        event.window,
+                        &ChangeWindowAttributesAux::new().event_mask(EventMask::NO_EVENT),
+                    )?
+                    .check()?;
+            }
+        } else {
+            transfer.offset = end;
+            self.incr_transfers.insert(key, transfer);
+        }
+
+        Ok(())
+    }
+
+    fn capture(&mut self, change: &XfixesNotify) -> Result<Option<Snapshot>> {
         trace!(owner = change.owner, "capturing X11 clipboard targets");
 
         let targets =
@@ -175,29 +441,28 @@ impl ClipboardWatcher {
             !targets.exceeded_limit,
             "X11 owner advertised more than {MAX_TARGET_COUNT} targets"
         );
-        if self.has_pending_change()? {
-            return Ok(None);
-        }
 
         let target_atoms = decode_atoms(&targets.data);
-
         let mut offers = Vec::with_capacity(target_atoms.len());
         let mut total_bytes = 0_usize;
 
         for atom in target_atoms {
-            if self.has_pending_change()? {
+            if self.pending_change.is_some() {
                 return Ok(None);
             }
 
-            let mime_type = self.atom_name(atom)?;
-            if !is_transferable_target(&mime_type) {
+            let name = self.conn.get_atom_name(atom)?.reply()?.name;
+            let Ok(mime_type) = String::from_utf8(name) else {
+                trace!(atom, "skipping non-UTF-8 X11 target");
+                continue;
+            };
+            if !is_x11_target(&mime_type) {
                 trace!(%mime_type, "skipping X11 protocol target");
                 continue;
             }
 
             let remaining_total = self.config.max_total_bytes - total_bytes;
             let target_limit = min(self.config.max_target_bytes, remaining_total);
-
             let value = self.request_target(change.timestamp, atom, target_limit)?;
             ensure!(
                 !value.exceeded_limit,
@@ -205,7 +470,6 @@ impl ClipboardWatcher {
             );
 
             total_bytes += value.data.len();
-
             trace!(%mime_type, bytes = value.data.len(), "captured X11 clipboard target");
             offers.push(Offer {
                 mime_type,
@@ -213,7 +477,8 @@ impl ClipboardWatcher {
             });
         }
 
-        if !self.selection_is_current(change)? {
+        self.drain_events()?;
+        if self.pending_change.is_some() {
             return Ok(None);
         }
 
@@ -241,19 +506,22 @@ impl ClipboardWatcher {
             )?
             .check()?;
 
-        self.wait_for_selection_notify(target, deadline)?;
+        self.wait_for_selection_notify(deadline)?;
 
         let initial = self.take_property(size_limit)?;
         if initial.type_ != self.atoms.incr {
             return Ok(initial);
         }
 
-        let announced_size = initial
-            .data
-            .first_chunk::<4>()
-            .map(|bytes| u32::from_ne_bytes(*bytes) as usize)
-            .unwrap_or(0);
-        let mut exceeded_limit = announced_size > size_limit || initial.exceeded_limit;
+        let mut exceeded_limit = initial.exceeded_limit;
+        if !exceeded_limit {
+            ensure!(
+                initial.format == 32 && initial.data.len() >= 4,
+                "X11 INCR response does not contain a 32-bit size"
+            );
+            exceeded_limit =
+                u32::from_ne_bytes(*initial.data.first_chunk::<4>().unwrap()) as usize > size_limit;
+        }
         let mut data = Vec::new();
         let mut result_type = NONE;
         let mut result_format = 0;
@@ -297,22 +565,15 @@ impl ClipboardWatcher {
         })
     }
 
-    fn wait_for_selection_notify(&mut self, target: Atom, deadline: Instant) -> Result<()> {
+    fn wait_for_selection_notify(&mut self, deadline: Instant) -> Result<()> {
         loop {
             match self.poll_event_until(deadline)? {
-                Event::SelectionNotify(event)
-                    if event.requestor == self.window
-                        && event.selection == self.atoms.clipboard
-                        && event.target == target =>
-                {
-                    ensure!(
-                        event.property != NONE,
-                        "X11 owner refused target atom {target}"
-                    );
+                Event::SelectionNotify(event) => {
+                    ensure!(event.property != NONE, "X11 owner refused clipboard target");
+
                     return Ok(());
                 }
-                Event::XfixesSelectionNotify(event) => self.remember_change(event),
-                _ => {}
+                event => self.handle_event(&event),
             }
         }
     }
@@ -327,8 +588,7 @@ impl ClipboardWatcher {
                 {
                     return Ok(());
                 }
-                Event::XfixesSelectionNotify(event) => self.remember_change(event),
-                _ => {}
+                event => self.handle_event(&event),
             }
         }
     }
@@ -339,7 +599,7 @@ impl ClipboardWatcher {
                 return Ok(event);
             }
             if Instant::now() >= deadline {
-                bail!("timed out waiting for X11 selection owner");
+                bail!("timed out waiting for X11 clipboard transfer");
             }
             thread::sleep(EVENT_POLL_INTERVAL);
         }
@@ -405,56 +665,7 @@ impl ClipboardWatcher {
     }
 
     fn remember_change(&mut self, event: XfixesNotify) {
-        if let Some(change) = self.selection_change(event) {
-            self.pending_change = Some(change);
-        }
-    }
-
-    fn has_pending_change(&mut self) -> Result<bool> {
-        while let Some(event) = self.conn.poll_for_event()? {
-            if let Event::XfixesSelectionNotify(event) = event {
-                self.remember_change(event);
-            }
-        }
-
-        Ok(self.pending_change.is_some())
-    }
-
-    fn selection_is_current(&mut self, change: &SelectionChange) -> Result<bool> {
-        if self.has_pending_change()? {
-            return Ok(false);
-        }
-
-        let current_owner = self
-            .conn
-            .get_selection_owner(self.atoms.clipboard)?
-            .reply()?
-            .owner;
-        if current_owner != change.owner {
-            debug!(
-                expected = change.owner,
-                actual = current_owner,
-                "X11 clipboard owner changed"
-            );
-            return Ok(false);
-        }
-
-        Ok(!self.has_pending_change()?)
-    }
-
-    fn selection_change(&self, event: XfixesNotify) -> Option<SelectionChange> {
-        (event.selection == self.atoms.clipboard).then_some(SelectionChange {
-            owner: event.owner,
-            timestamp: event.timestamp,
-        })
-    }
-
-    fn atom_name(&self, atom: Atom) -> Result<String> {
-        let bytes = self.conn.get_atom_name(atom)?.reply()?.name;
-        let name = String::from_utf8(bytes).context("X11 target name is not valid UTF-8")?;
-        ensure!(!name.is_empty(), "X11 target name is empty");
-        ensure!(!name.contains('\0'), "X11 target name contains \\0");
-        Ok(name)
+        self.pending_change = (event.owner != self.window).then_some(event);
     }
 }
 
@@ -463,15 +674,23 @@ fn intern_atom(conn: &RustConnection, name: &[u8]) -> Result<Atom> {
 }
 
 fn decode_atoms(bytes: &[u8]) -> Vec<Atom> {
-    let (chunks, remainder) = bytes.as_chunks::<4>();
-    debug_assert!(remainder.is_empty());
-
-    chunks
+    bytes
+        .as_chunks::<4>()
+        .0
         .iter()
         .map(|chunk| u32::from_ne_bytes(*chunk))
         .collect()
 }
 
-fn is_transferable_target(name: &str) -> bool {
-    !CONTROL_TARGETS.contains(&name)
+fn drain_wake(wake: &mut UnixStream) -> Result<()> {
+    let mut buffer = [0_u8; 64];
+    loop {
+        match wake.read(&mut buffer) {
+            Ok(_) => return Ok(()),
+            Err(error) if error.kind() == ErrorKind::Interrupted => {}
+            Err(error) => {
+                return Err(error).context("failed to drain X11 worker wake pipe");
+            }
+        }
+    }
 }

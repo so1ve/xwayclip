@@ -11,7 +11,7 @@ let
 in
 {
   options.services.xwayclip = {
-    enable = lib.mkEnableOption "X11 to Wayland clipboard synchronization";
+    enable = lib.mkEnableOption "bidirectional X11 and Wayland clipboard synchronization";
 
     package = lib.mkOption {
       type = lib.types.package;
@@ -35,7 +35,7 @@ in
 
     systemd.user.services.xwayclip = {
       Unit = {
-        Description = "Synchronize the X11 clipboard to Wayland";
+        Description = "Synchronize the clipboard between X11 and Wayland";
         After = [ "graphical-session.target" ];
         PartOf = [ "graphical-session.target" ];
       };

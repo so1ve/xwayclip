@@ -1,5 +1,5 @@
 {
-  description = "Clipboard synchronization from X11 to Wayland";
+  description = "Bidirectional clipboard synchronization between X11 and Wayland";
 
   nixConfig = {
     extra-substituters = [ "https://so1ve.cachix.org" ];

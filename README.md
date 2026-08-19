@@ -3,13 +3,20 @@
 [![CI](https://github.com/so1ve/xwayclip/actions/workflows/ci.yml/badge.svg)](https://github.com/so1ve/xwayclip/actions/workflows/ci.yml)
 [![Cachix Cache](https://img.shields.io/badge/cachix-so1ve-blue.svg)](https://so1ve.cachix.org)
 
-xwayland/xwayland-satellite normally provides bidirectional clipboard integration between X11 and Wayland. xwayclip offers an alternative X11-to-Wayland path for applications whose clipboard formats are not forwarded reliably, like Linux QQ. It eagerly captures every advertised X11 format and publishes the resulting snapshot to Wayland. Wayland-to-X11 synchronization remains handled by the existing Xwayland integration.
+xwayclip synchronizes the regular clipboard in both directions between X11 and Wayland. It is designed for mixed-protocol applications such as Linux QQ (司马腾讯不适配 Wayland剪贴板), where one process can use native Wayland for its windows while still reading or writing clipboard data through X11.
+
+Unlike focus-dependent Xwayland clipboard integration, xwayclip owns an independent data-control connection. It eagerly captures every advertised format before publishing the same snapshot on the other display protocol.
 
 ## How it works
 
-`xwayclip` watches X11 `CLIPBOARD` owner changes through XFixes, requests every transferable target, and publishes their distinct contents together as one Wayland data-control source.
+`xwayclip` runs two clipboard workers:
 
-Large `INCR` transfers are supported and a content fingerprint is used to suppress repeated snapshots.
+- The X11 worker watches `CLIPBOARD` owner changes through XFixes and captures every transferable target.
+- The Wayland worker watches data-control selection changes and captures every advertised MIME type.
+
+The bridge publishes each complete snapshot on the opposite side. On X11 it becomes the selection owner and serves `TARGETS` plus individual format requests; on Wayland it provides a multi-MIME data-control source.
+
+Large X11 transfers use `INCR` in both directions. Normalized content fingerprints suppress the echo created by the two clipboard protocols and their text aliases. Clearing either clipboard clears the other one as well.
 
 ## Requirements
 

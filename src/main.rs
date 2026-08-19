@@ -18,7 +18,7 @@ struct Args {
     #[arg(long, default_value_t = 512)]
     max_total_size_mib: usize,
 
-    /// Maximum time to wait for each X11 target transfer
+    /// Maximum time to wait for each clipboard target transfer
     #[arg(long, default_value_t = 5_000)]
     transfer_timeout_ms: u64,
 }
@@ -28,6 +28,7 @@ fn main() -> Result<()> {
 
     let args = Args::parse();
     let config = config_from_args(&args)?;
+
     xwayclip::run(config)
 }
 

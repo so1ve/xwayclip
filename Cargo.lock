@@ -694,6 +694,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "wl-clipboard-watch"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c85e1a4df6e4f2ce630564c9d26a06a275f3dbc341888741e2859742695f98e"
+dependencies = [
+ "anyhow",
+ "rustix",
+ "wayland-client",
+ "wayland-protocols",
+ "wayland-protocols-wlr",
+]
+
+[[package]]
 name = "x11rb"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -717,8 +730,10 @@ dependencies = [
  "anyhow",
  "blake3",
  "clap",
+ "rustix",
  "tracing",
  "tracing-subscriber",
  "wl-clipboard-rs",
+ "wl-clipboard-watch",
  "x11rb",
 ]

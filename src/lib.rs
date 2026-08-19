@@ -169,7 +169,7 @@ fn spawn_wayland(
 ) -> Result<(Sender<()>, JoinHandle<()>)> {
     let (shutdown, shutdown_rx) = mpsc::channel();
     let thread = thread::Builder::new()
-        .name("xwayclip-wayland".to_owned())
+        .name("xwayclip-wl".to_owned())
         .spawn(move || {
             if let Err(error) = wayland::run(config, &events, &shutdown_rx) {
                 events

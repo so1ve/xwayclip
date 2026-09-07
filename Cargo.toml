@@ -1,6 +1,6 @@
 [package]
 name = "xwayclip"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 description = "Bidirectional clipboard synchronization between X11 and Wayland"
 repository = "https://github.com/so1ve/xwayclip"

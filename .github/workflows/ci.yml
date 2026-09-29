@@ -35,12 +35,16 @@ jobs:
       matrix:
         include:
           - system: x86_64-linux
+            target: x86_64-unknown-linux-gnu
             runner: ubuntu-24.04
           - system: aarch64-linux
+            target: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: so1ve/workflows/setup-rust@v1
+        with:
+          toolchain: nightly
       - uses: cachix/install-nix-action@v31
       - uses: cachix/cachix-action@v17
         with:
@@ -48,22 +52,6 @@ jobs:
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           skipPush: ${{ github.event_name == 'pull_request' }}
       - run: nix build ".#packages.${{ matrix.system }}.default" --print-build-logs
-
-  binary:
-    name: Binary ${{ matrix.target }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            runner: ubuntu-24.04
-          - target: aarch64-unknown-linux-gnu
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: so1ve/workflows/setup-rust@v1
-        with:
-          toolchain: nightly
       - run: cargo build --locked --release
       - run: mv target/release/xwayclip "xwayclip-${{ matrix.target }}"
       - uses: actions/upload-artifact@v7

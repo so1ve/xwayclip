@@ -8,7 +8,7 @@ use wl_clipboard_rs::copy::{
 };
 use wl_clipboard_watch::{Config as WatcherConfig, Event, Selection, Transfer, Watcher};
 
-use crate::snapshot::{Offer, Snapshot};
+use crate::snapshot::{Offer, Snapshot, is_x11_target};
 use crate::{ClipboardUpdate, Config, WorkerEvent};
 
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -64,8 +64,8 @@ fn capture(
     let mut total_bytes = 0_usize;
 
     for mime_type in mime_types {
-        if mime_type.is_empty() || mime_type.contains('\0') {
-            debug!(?mime_type, "skipping invalid Wayland MIME type");
+        if !is_x11_target(&mime_type) {
+            debug!(?mime_type, "skipping non-transferable Wayland MIME type");
             continue;
         }
 

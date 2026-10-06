@@ -7,6 +7,10 @@ xwayclip synchronizes the regular clipboard in both directions between X11 and W
 
 Unlike focus-dependent Xwayland clipboard integration, xwayclip owns an independent data-control connection. It eagerly captures every advertised format before publishing the same snapshot on the other display protocol.
 
+> [!NOTE]
+>
+> If you are using xwayclip to fix QQ's issue, consider using https://github.com/SHORiN-KiWATA/linuxqq-wayland-fix as a more comprehensive alternative
+
 ## How it works
 
 `xwayclip` runs two clipboard workers:

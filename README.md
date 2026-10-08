@@ -9,7 +9,7 @@ Unlike focus-dependent Xwayland clipboard integration, xwayclip owns an independ
 
 > [!NOTE]
 >
-> If you are using xwayclip to fix QQ's issue, consider using https://github.com/SHORiN-KiWATA/linuxqq-wayland-fix as a more comprehensive alternative
+> If you are using xwayclip to fix QQ's issues, consider using https://github.com/SHORiN-KiWATA/linuxqq-wayland-fix as a more comprehensive alternative. However, its clipboard synchronization is limited and not as mature as xwayclip's.
 
 ## How it works
 

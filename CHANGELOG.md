@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3](https://github.com/so1ve/xwayclip/compare/v0.2.2...v0.2.3) - 2026-10-08
+
+### Fixed
+
+- Preserve Wayland clipboard data across SPICE ([#14](https://github.com/so1ve/xwayclip/pull/14))
+
+### Other
+
+- mention linuxqq-wayland-fix's clipboard sync limits
+- mention linuxqq-wayland-fix as a more comprehensive alternative
+- *(deps)* lock file maintenance ([#19](https://github.com/so1ve/xwayclip/pull/19))
+- remove reductant build step
+- *(deps)* lock file maintenance ([#17](https://github.com/so1ve/xwayclip/pull/17))
+- *(deps)* lock file maintenance ([#16](https://github.com/so1ve/xwayclip/pull/16))
+- *(deps)* update rust crate rustix to v1.1.5 ([#15](https://github.com/so1ve/xwayclip/pull/15))
+- *(deps)* update rust crate clap to v4.6.7 ([#13](https://github.com/so1ve/xwayclip/pull/13))
+- *(deps)* lock file maintenance ([#12](https://github.com/so1ve/xwayclip/pull/12))
+- *(deps)* lock file maintenance ([#11](https://github.com/so1ve/xwayclip/pull/11))
+- *(deps)* lock file maintenance ([#10](https://github.com/so1ve/xwayclip/pull/10))
+
 ## [0.2.2](https://github.com/so1ve/xwayclip/compare/v0.2.1...v0.2.2) - 2026-08-22
 
 ### Fixed

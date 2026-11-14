@@ -1,7 +1,7 @@
 # xwayclip
 
 [![CI](https://github.com/so1ve/xwayclip/actions/workflows/ci.yml/badge.svg)](https://github.com/so1ve/xwayclip/actions/workflows/ci.yml)
-[![Cachix Cache](https://img.shields.io/badge/cachix-so1ve-blue.svg)](https://so1ve.cachix.org)
+[![Nix Binary Cache](https://img.shields.io/badge/binary_cache-cache.so1ve.dev-blue.svg)](https://cache.so1ve.dev/nix-cache-info)
 
 xwayclip synchronizes the regular clipboard in both directions between X11 and Wayland. It is designed for mixed-protocol applications such as Linux QQ (司马腾讯不适配 Wayland剪贴板), where one process can use native Wayland for its windows while still reading or writing clipboard data through X11.
 
@@ -96,13 +96,13 @@ Import the home manager module to enable the service:
 
 Additional command-line arguments can be configured with `services.xwayclip.extraArgs`.
 
-### Cachix
+### Binary cache
 
 ```nix
 nix.settings = {
-  extra-substituters = [ "https://so1ve.cachix.org" ];
+  extra-substituters = [ "https://cache.so1ve.dev" ];
   extra-trusted-public-keys = [
-    "so1ve.cachix.org-1:51jcW4FkJhiLcqPsiUx3nglRP469les8F9zjFxio1nw="
+    "cache.so1ve.dev-1:SijyzF9iE/VZwMXgMpd/HrNX9iItDZ1tdiNdeGakQGY="
   ];
 };
 ```
